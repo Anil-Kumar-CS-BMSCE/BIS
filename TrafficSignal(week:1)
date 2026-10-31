@@ -1,0 +1,111 @@
+import random
+import numpy as np
+
+TOTAL_CYCLE_TIME = 120
+POPULATION_SIZE = 20
+GENERATIONS = 50
+MUTATION_RATE = 0.1
+
+CURRENT_QUEUES = np.array([45, 12, 18, 8]) 
+
+DISCHARGE_RATE = 0.5 
+
+def calculate_waiting_time(chromosome):
+    total_waiting_time = 0
+    for phase_green, initial_queue in zip(chromosome, CURRENT_QUEUES):
+        cleared_vehicles = phase_green * DISCHARGE_RATE
+        remaining_vehicles = max(0, initial_queue - cleared_vehicles)
+      
+        total_waiting_time += remaining_vehicles * TOTAL_CYCLE_TIME
+    return total_waiting_time
+
+def get_fitness(chromosome):
+    waiting_time = calculate_waiting_time(chromosome)
+    return 100000 / (waiting_time + 1) 
+
+def normalize_chromosome(chromosome):
+   
+    min_green = 10
+    num_phases = len(chromosome)
+  
+    chromosome = [max(min_green, gene) for gene in chromosome]
+  
+    current_sum = sum(chromosome)
+    scaled = [int((gene / current_sum) * TOTAL_CYCLE_TIME) for gene in chromosome]
+   
+    diff = TOTAL_CYCLE_TIME - sum(scaled)
+    scaled[0] += diff
+    
+    return scaled
+
+def create_individual():
+
+    raw_plan = [random.randint(10, 80) for _ in range(4)]
+    return normalize_chromosome(raw_plan)
+
+
+
+def selection(population, fitness_scores):
+   
+    total_fitness = sum(fitness_scores)
+    selection_probs = [f / total_fitness for f in fitness_scores]
+    selected_indices = np.random.choice(len(population), size=2, p=selection_probs)
+    return population[selected_indices[0]], population[selected_indices[1]]
+
+def crossover(parent1, parent2):
+   
+    crossover_point = random.randint(1, 3)
+    offspring1 = parent1[:crossover_point] + parent2[crossover_point:]
+    offspring2 = parent2[:crossover_point] + parent1[crossover_point:]
+    return normalize_chromosome(offspring1), normalize_chromosome(offspring2)
+
+def mutate(chromosome):
+ 
+    if random.random() < MUTATION_RATE:
+        idx1, idx2 = random.sample(range(4), 2)
+        if chromosome[idx1] > 15:  
+            chromosome[idx1] -= 5
+            chromosome[idx2] += 5
+    return normalize_chromosome(chromosome)
+
+population = [create_individual() for _ in range(POPULATION_SIZE)]
+history = []
+
+print(f"Initial Sensor Queues: NS-Straight={CURRENT_QUEUES[0]}, NS-Left={CURRENT_QUEUES[1]}, EW-Straight={CURRENT_QUEUES[2]}, EW-Left={CURRENT_QUEUES[3]}\n")
+
+for generation in range(GENERATIONS):
+   
+    fitness_scores = [get_fitness(ind) for ind in population]
+    waiting_times = [calculate_waiting_time(ind) for ind in population]
+    
+    best_idx = np.argmin(waiting_times)
+    best_individual = population[best_idx]
+    best_waiting_time = waiting_times[best_idx]
+    history.append(best_waiting_time)
+  
+    if (generation + 1) % 10 == 0 or generation == 0:
+        print(f"Generation {generation+1}: Best Plan = {best_individual} | Total Delay = {best_waiting_time:.1f} vehicle-seconds")
+    
+    new_population = []
+    
+    new_population.append(best_individual)
+    
+    while len(new_population) < POPULATION_SIZE:
+        p1, p2 = selection(population, fitness_scores)
+        o1, o2 = crossover(p1, p2)
+        new_population.append(mutate(o1))
+        if len(new_population) < POPULATION_SIZE:
+            new_population.append(mutate(o2))
+            
+    population = new_population
+
+final_waiting_times = [calculate_waiting_time(ind) for ind in population]
+absolute_best_plan = population[np.argmin(final_waiting_times)]
+
+print("\n=== OPTIMIZATION COMPLETE ===")
+print(f"Optimal Phase Allocation (Seconds):")
+print(f" -> NS Straight: {absolute_best_plan[0]}s")
+print(f" -> NS Left:     {absolute_best_plan[1]}s")
+print(f" -> EW Straight: {absolute_best_plan[2]}s")
+print(f" -> EW Left:     {absolute_best_plan[3]}s")
+print(f"Total Intersection Delay Reduced to: {min(final_waiting_times):.1f} vehicle-seconds")
