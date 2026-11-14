@@ -1,0 +1,118 @@
+import random
+
+network_latency = {
+    "R0": {"R1": 5, "R2": 12},
+    "R1": {"R0": 5, "R3": 6, "R4": 15},
+    "R2": {"R0": 12, "R4": 8},
+    "R3": {"R1": 6, "R5": 5},
+    "R4": {"R1": 15, "R2": 8, "R5": 7},
+    "R5": {"R3": 5, "R4": 7},
+}
+
+SOURCE = "R0"
+DESTINATION = "R5"
+
+NUM_ANTS = 15
+ALPHA = 1.0
+BETA = 2.0
+RHO = 0.3
+Q = 100.0
+MAX_STEPS = 30
+CRASH_STEP = 15
+
+pheromones = {
+    u: {v: 1.0 for v in neighbors} for u, neighbors in network_latency.items()
+}
+
+
+def select_next_router(current, unvisited_neighbors):
+    scores = []
+    total_score = 0.0
+
+    for neighbor in unvisited_neighbors:
+        memory = pheromones[current][neighbor] ** ALPHA
+        latency = network_latency[current][neighbor]
+        eyesight = (1.0 / latency) ** BETA
+        score = memory * eyesight
+        scores.append((neighbor, score))
+        total_score += score
+
+    pick = random.uniform(0, total_score)
+    cumulative = 0.0
+    for neighbor, score in scores:
+        cumulative += score
+        if cumulative >= pick:
+            return neighbor
+    return scores[-1][0]
+
+
+def get_active_best_route(start, end):
+    current = start
+    route = [current]
+    visited = {current}
+    total_delay = 0
+
+    while current != end:
+        neighbors = {
+            n: pheromones[current][n]
+            for n in network_latency[current]
+            if n not in visited
+        }
+        if not neighbors:
+            return None, float("inf")
+
+        best_next = max(neighbors, key=neighbors.get)
+        total_delay += network_latency[current][best_next]
+        route.append(best_next)
+        visited.add(best_next)
+        current = best_next
+
+    return route, total_delay
+
+
+print(f"Starting Dynamic ACO Routing from {SOURCE} to {DESTINATION}...\n")
+
+steps_to_print = {1, 5, 14, 15, 16, 18, 25, 30}
+
+for step in range(1, MAX_STEPS + 1):
+
+    if step == CRASH_STEP:
+        print(
+            "\n[!] ALERT at Step 15: Heavy congestion on link R1 <-> R3 (Latency spiked to 500ms)!\n"
+        )
+        network_latency["R1"]["R3"] = 500
+        network_latency["R3"]["R1"] = 500
+
+    for ant in range(NUM_ANTS):
+        current = SOURCE
+        path_history = [SOURCE]
+        trip_latency = 0
+
+        while current != DESTINATION:
+            unvisited = [
+                n for n in network_latency[current] if n not in path_history
+            ]
+
+            if not unvisited:
+                break
+
+            next_router = select_next_router(current, unvisited)
+            trip_latency += network_latency[current][next_router]
+            path_history.append(next_router)
+            current = next_router
+
+        if current == DESTINATION:
+            reward = Q / trip_latency
+            for i in range(len(path_history) - 1):
+                u, v = path_history[i], path_history[i + 1]
+                pheromones[u][v] += reward
+
+    for u in pheromones:
+        for v in pheromones[u]:
+            pheromones[u][v] = max(0.01, pheromones[u][v] * (1.0 - RHO))
+
+    best_route, route_delay = get_active_best_route(SOURCE, DESTINATION)
+    if step in steps_to_print:
+        print(
+            f"Step {step:02d} | Active Route: {' -> '.join(best_route)} | Total Delay: {route_delay} ms"
+        )
